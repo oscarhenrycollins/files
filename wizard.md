@@ -6,6 +6,7 @@ type: view
 category: system
 version: 2.63.23
 summary: Your own cloud folder that every app shares.
+icon: icon.png
 license: WTFPL
 source: https://github.com/oscarhenrycollins/files
 runtime:
