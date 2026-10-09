@@ -3,8 +3,9 @@ wizard: 0.2
 id: files
 name: Files
 type: view
+category: system
 version: 2.63.23
-summary: Your own cloud folder for videos, documents and folders, shared by every Wizard app.
+summary: Your own cloud folder that every app shares.
 license: WTFPL
 source: https://github.com/oscarhenrycollins/files
 runtime:
@@ -22,4 +23,4 @@ needs:
 
 # Files
 
-Your own cloud folder for videos, documents and folders, shared by every Wizard app.
+Your own cloud folder that every app shares.
