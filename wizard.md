@@ -6,7 +6,7 @@ type: view
 version: 2.63.23
 summary: Your own cloud folder for videos, documents and folders, shared by every Wizard app.
 license: WTFPL
-source: https://github.com/mistermizel/files
+source: https://github.com/oscarhenrycollins/files
 runtime:
   kind: runtipi
   config: runtipi/config.json
@@ -14,8 +14,10 @@ runtime:
 view:
   path: /
   port: 8794
-provides: [files]
-needs: [files]
+provides:
+- files
+needs:
+- files
 ---
 
 # Files
