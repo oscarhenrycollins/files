@@ -9,9 +9,9 @@
   "categories": [
     "media"
   ],
-  "description": "Unmodified File Browser on Runtipi's shared media folder: upload, download, share and organise videos, documents and folders from any browser, including iPhone Safari (large uploads are sent in resumable chunks). Other apps use the same folder: put a video in Videos, ask Hermes to edit it with DeFleur Video, and the result lands in Videos/Edited. No login by default: keep Runtipi private (e.g. Tailscale). Set a password before exposing it on a public domain.",
-  "tipi_version": 1,
-  "version": "v2.63.23",
+  "description": "Unmodified File Browser on Runtipi's shared media folder: upload, download, share and organise videos, documents and folders from any browser, including iPhone Safari (large uploads are sent in resumable chunks). Other apps use the same folder: put a video in Videos, ask Hermes to edit it with DeFleur Video, and the result lands in Videos/Edited. Agents get Files tools (list, find, read, save; no delete) through the Wizard hub, from inside the box only. No login by default: keep Runtipi private (e.g. Tailscale). Set a password before exposing it on a public domain.",
+  "tipi_version": 2,
+  "version": "v2.63.23-wizard1",
   "source": "https://github.com/filebrowser/filebrowser",
   "website": "https://filebrowser.org",
   "exposable": true,
