@@ -14,7 +14,7 @@ services:
     mem_limit: 256m
     environment:
       WIZARD_APP: files
-      APP_VERSION: 2.63.23-wizard1
+      APP_VERSION: 2.63.23-wizard2
       FRONT_PORT: '8080'
       UPSTREAM_HOST: files-engine
       UPSTREAM_PORT: '8080'
@@ -395,6 +395,10 @@ services:
       # Also read by the image's own healthcheck (/healthcheck.sh).
       FB_ADDRESS: 0.0.0.0
       FB_PORT: "8080"
+      # Runtime override also migrates existing databases without changing user data.
+      FB_BASEURL: /files
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/files/health"]
     entrypoint:
       - tini
       - --
