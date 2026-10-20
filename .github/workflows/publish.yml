@@ -8,6 +8,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Same-origin packaging regression tests
+        run: |
+          python3 -m pip install PyYAML
+          python3 -m unittest discover -s tests -v
       - name: Generated MCP front is up to date
         run: python3 mcp/inline.py --check
       - name: Publish (the index re-reads this repo and runs the wizard.md check)
