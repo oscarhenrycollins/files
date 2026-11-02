@@ -83,7 +83,7 @@ def rpc(msg):
 
 
 REASONS = {200: "OK", 202: "Accepted", 400: "Bad Request", 404: "Not Found", 405: "Method Not Allowed",
-           401: "Unauthorized", 413: "Payload Too Large", 502: "Bad Gateway"}
+           401: "Unauthorized", 403: "Forbidden", 413: "Payload Too Large", 502: "Bad Gateway"}
 
 
 async def respond(writer, code, obj=None, extra=""):
@@ -97,16 +97,49 @@ async def respond(writer, code, obj=None, extra=""):
         writer.close()
 
 
-async def mcp(reader, writer, method, rest):
-    headers = {}
+def header_pairs(rest):
+    out = []
     for line in rest.decode("latin-1").split("\r\n"):
         if ":" in line:
             k, v = line.split(":", 1)
-            headers[k.strip().lower()] = v.strip()
+            out.append((k.strip().lower(), v.strip()))
+    return out
+
+
+def networked(pairs):
+    """The request came through Tailscale Serve, a tunnel or a proxy (not from an app on this box)."""
+    return any(k.startswith(("tailscale-", "x-forwarded-", "cf-")) or k in ("forwarded", "x-real-ip") for k, _ in pairs)
+
+
+# The box owner's tailnet login(s): the App Manager writes WIZARD_OWNER_LOGINS at install for recipes that declare it.
+OWNERS = {x.strip().lower() for x in os.environ.get("WIZARD_OWNER_LOGINS", "").split(",") if x.strip()}
+# File Browser share links are capabilities the owner hands out; they open for anyone the link reaches.
+SHARED = ("/files/share/", "/files/api/public/", "/files/static/")
+
+
+def not_owner(path, pairs):
+    """File Browser runs without its own login (noauth), so whoever reaches it can read, write and delete every
+    file. A request through Tailscale Serve or a proxy reaches it only as the box owner: exactly one tailnet user
+    login, one of WIZARD_OWNER_LOGINS when set (older installs: any single tailnet user, never a tagged device, a
+    Funnel visitor or a proxy with no login). Apps on this box (no network headers) are unchanged."""
+    if not networked(pairs):
+        return False
+    plain = urllib.parse.unquote(path)
+    if plain.startswith(SHARED) and ".." not in plain and "//" not in plain and "\\" not in plain:
+        return False
+    logins = [v.lower() for k, v in pairs if k == "tailscale-user-login"]
+    return len(logins) != 1 or not logins[0] or bool(OWNERS and logins[0] not in OWNERS)
+
+
+async def mcp(reader, writer, method, rest):
+    headers = dict(header_pairs(rest))
     if MCP_TOKEN:
         import hmac
         if not hmac.compare_digest(headers.get("authorization", "").encode(), ("Bearer " + MCP_TOKEN).encode()):
             return await respond(writer, 401, {"error": "this MCP needs Authorization: Bearer <token>"}, 'WWW-Authenticate: Bearer\r\n')
+    elif networked(headers.items()):
+        # Without a token the MCP is for apps on this box only, the handshake included, like every tool (_box_only).
+        return await respond(writer, 403, {"error": "this MCP is only for apps on this box"})
     if method != "POST":
         return await respond(writer, 405, {"error": "use POST %s" % MCP_PATH}, "Allow: POST\r\n")
     n = int(headers.get("content-length") or 0)
@@ -154,6 +187,8 @@ async def handle(reader, writer):
     path = parts[1].split("?", 1)[0] if len(parts) >= 3 else ""
     if path == MCP_PATH:
         return await mcp(reader, writer, parts[0], rest)
+    if not_owner(path, header_pairs(rest)):
+        return await respond(writer, 403, {"error": "Files opens only for this box's owner. Open it from your Wizard."})
     if not UP_HOST:
         return await respond(writer, 404, {"error": "not found"})
     try:
