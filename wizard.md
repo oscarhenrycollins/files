@@ -5,7 +5,7 @@ name: Files
 type: view
 category: system
 tags: [data]
-version: 2.63.23-wizard2
+version: 2.63.23-wizard3
 summary: Your own cloud folder that every app shares.
 icon: icon.png
 license: WTFPL
