@@ -14,7 +14,7 @@ services:
     mem_limit: 256m
     environment:
       WIZARD_APP: files
-      APP_VERSION: 2.63.23-wizard3
+      APP_VERSION: 2.63.23-wizard4
       FRONT_PORT: '8080'
       UPSTREAM_HOST: files-engine
       UPSTREAM_PORT: '8080'
@@ -24,6 +24,10 @@ services:
       # Browser (no login of its own) then answers only the box owner's tailnet login.
       WIZARD_TRUSTED_HOSTS: ${WIZARD_TRUSTED_HOSTS:-}
       WIZARD_OWNER_LOGINS: ${WIZARD_OWNER_LOGINS:-}
+      # Browser boundary (default-off; wizard-os #385 approved exception). The App Manager writes both only when the
+      # boundary is on: Files then answers only as its own tab on its own address, never framed or read cross-site.
+      WIZARD_BROWSER_BOUNDARY: ${WIZARD_BROWSER_BOUNDARY:-}
+      WIZARD_OWN_HOSTS: ${WIZARD_OWN_HOSTS:-}
     depends_on:
     - files-engine
     volumes:
@@ -166,6 +170,47 @@ services:
           return len(logins) != 1 or not logins[0] or bool(OWNERS and logins[0] not in OWNERS)
 
 
+      # Browser boundary (wizard-os #385, Files decision 2 Nov 2026; default-off): File Browser is the approved separate-
+      # origin exception. Its UI runs on its OWN origin (its own HTTPS port), opened only as its own tab, never framed in a
+      # Wizard window. With WIZARD_BROWSER_BOUNDARY=1 this front refuses, before File Browser sees anything:
+      #   - any frame/embed request (Sec-Fetch-Dest iframe, frame, embed, object, fencedframe);
+      #   - a foreign or opaque Origin (`null` from a sandboxed app frame included);
+      #   - cross-site and same-site requests (other Wizard origins on the same host are same-site), except a plain top-level
+      #     GET/HEAD navigation (the shell opening the tab; it cannot read the page);
+      #   - with WIZARD_OWN_HOSTS set, any browser/network request whose Host is not Files' own authority, so an old
+      #     owner-origin route (/files/ on the Wizard address) cannot reach it.
+      # Every response then says DENY to framing (X-Frame-Options + CSP frame-ancestors 'none') and same-origin to
+      # cross-origin readers (CORP) and openers (COOP). Apps on this box (no browser or network headers) are unchanged; the
+      # owner gate above still applies. Off (unset), nothing here runs and responses are byte for byte as before.
+      BOUNDARY = os.environ.get("WIZARD_BROWSER_BOUNDARY") == "1"
+      OWN_HOSTS = {x.strip().lower() for x in os.environ.get("WIZARD_OWN_HOSTS", "").split(",") if x.strip()}
+      FRAME_DESTS = {"iframe", "frame", "embed", "object", "fencedframe"}
+      BROWSER_HEADERS = {"origin", "cookie", "referer", "sec-fetch-site", "sec-fetch-dest", "sec-fetch-user"}
+      OWN_TAB_HEADERS = ("X-Frame-Options: DENY\r\nContent-Security-Policy: frame-ancestors 'none'\r\n"
+                         "Cross-Origin-Resource-Policy: same-origin\r\nCross-Origin-Opener-Policy: same-origin\r\n")
+
+
+      def own_tab_refusal(method, pairs):
+          """Why a browser request must not reach File Browser under the boundary, or None. Box apps pass."""
+          if not BOUNDARY:
+              return None
+          h = dict(pairs)
+          if not networked(pairs) and not any(k in BROWSER_HEADERS for k, _ in pairs):
+              return None
+          host = h.get("host", "").lower()
+          if OWN_HOSTS and host not in OWN_HOSTS:
+              return "Files opens in its own tab, not at this address. Open it from your Wizard."
+          dest, site, mode = h.get("sec-fetch-dest", ""), h.get("sec-fetch-site", ""), h.get("sec-fetch-mode", "")
+          if dest in FRAME_DESTS:
+              return "Files never opens inside another page. Open it from your Wizard."
+          origin = h.get("origin")
+          if origin is not None and (origin == "null" or urllib.parse.urlsplit(origin).netloc.lower() != host):
+              return "Files answers only its own page."
+          if site in ("cross-site", "same-site") and not (mode == "navigate" and dest == "document" and method in ("GET", "HEAD")):
+              return "Files answers only its own page."
+          return None
+
+
       async def mcp(reader, writer, method, rest):
           headers = dict(header_pairs(rest))
           if MCP_TOKEN:
@@ -220,6 +265,9 @@ services:
           line, _, rest = head.partition(b"\r\n")
           parts = line.decode("latin-1").split(" ")
           path = parts[1].split("?", 1)[0] if len(parts) >= 3 else ""
+          refused = own_tab_refusal(parts[0] if parts else "", header_pairs(rest))
+          if refused:
+              return await respond(writer, 403, {"error": refused}, OWN_TAB_HEADERS)
           if path == MCP_PATH:
               return await mcp(reader, writer, parts[0], rest)
           if not_owner(path, header_pairs(rest)):
@@ -238,6 +286,21 @@ services:
               head = ("\r\n".join(lines) + "\r\nConnection: close\r\n\r\n").encode("latin-1")
           uw.write(head)
           await uw.drain()
+          if BOUNDARY:
+              # Own-tab headers on File Browser's reply head (one request per connection, so this is its only head).
+              # The request body keeps flowing meanwhile (uploads): File Browser answers only after reading it.
+              upload = asyncio.ensure_future(pipe(reader, uw))
+              try:
+                  uhead = await ur.readuntil(b"\r\n\r\n")
+              except (asyncio.IncompleteReadError, asyncio.LimitOverrunError, ConnectionError):
+                  upload.cancel()
+                  writer.close()
+                  return
+              keep = [l for l in uhead.decode("latin-1").split("\r\n") if l and not l.lower().startswith(
+                  ("x-frame-options:", "cross-origin-resource-policy:", "cross-origin-opener-policy:"))]
+              writer.write(("\r\n".join(keep) + "\r\n" + OWN_TAB_HEADERS + "\r\n").encode("latin-1"))
+              await asyncio.gather(upload, pipe(ur, writer))
+              return
           await asyncio.gather(pipe(reader, uw), pipe(ur, writer))
 
 
